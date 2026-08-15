@@ -1,0 +1,23 @@
+{
+  "values": [
+    "createpropulsion:thruster",
+    "createpropulsion:inline_optical_sensor",
+    "createpropulsion:optical_sensor",
+    "createpropulsion:physics_assembler",
+    "createpropulsion:lodestone_tracker",
+    "createpropulsion:redstone_magnet",
+    "createpropulsion:redstone_transmission",
+    "createpropulsion:hot_air_burner",
+    "createpropulsion:hot_air_pump",
+    "createpropulsion:solid_burner",
+    "createpropulsion:liquid_burner",
+    "createpropulsion:propeller",
+    "createpropulsion:stirling_engine",
+    "createpropulsion:tilt_adapter",
+    "createpropulsion:wing",
+    "createpropulsion:tempered_wing",
+    "createpropulsion:copycat_wing",
+    "createpropulsion:copycat_wing_8",
+    "createpropulsion:copycat_wing_12"
+  ]
+}
