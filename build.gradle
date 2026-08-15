@@ -1,0 +1,228 @@
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'maven-publish'
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'org.parchmentmc.librarian.forgegradle' version '1.2.0'
+    id 'org.spongepowered.mixin' version '0.7+'
+}
+
+version = mod_version
+group = mod_group_id
+
+base {
+    archivesName = mod_id
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty 'java.vm.version'} (${System.getProperty 'java.vendor'}), Arch: ${System.getProperty 'os.arch'}"
+minecraft {
+    mappings channel: mapping_channel, version: mapping_version
+    copyIdeResources = true
+
+    mixin {
+        add sourceSets.main, "${mod_id}.refmap.json"
+        config "${mod_id}.mixins.json"
+    }
+
+    runs {
+        configureEach {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            mods {
+                "${mod_id}" {
+                    source sourceSets.main
+                }
+            }
+        }
+
+        client {
+            property 'forge.enabledGameTestNamespaces', mod_id
+        }
+
+        server {
+            property 'forge.enabledGameTestNamespaces', mod_id
+            args '--nogui'
+        }
+
+        gameTestServer {
+            property 'forge.enabledGameTestNamespaces', mod_id
+        }
+
+        data {
+            workingDirectory project.file('run-data')
+
+            args '--mod', mod_id, '--all', '--output', file('src/generated/resources/'), '--existing', file('src/main/resources/')
+        }
+    }
+}
+
+sourceSets.main.resources { srcDirs = ['src/main/resources', 'src/generated/resources'] }
+
+configurations.all {
+    exclude group: 'net.minecraftforge', module: 'mergetool'
+}
+
+dependencies {
+    implementation files('libs/mergetool-1.1.7-fatjar.jar')
+}
+
+repositories {
+
+    mavenCentral()
+
+    maven {
+        url = "https://modmaven.dev/"
+    }
+
+    maven {
+        name = "Modrinth Maven"
+        url = "https://api.modrinth.com/maven"
+        content {
+            includeGroup("maven.modrinth")
+        }
+    }
+
+    maven {
+        name = "CurseForge Maven"
+        url = "https://cursemaven.com"
+        content {
+            includeGroup("curse.maven")
+        }
+    }
+    maven {
+        name = "create maven"
+        url = "https://maven.tterrag.com/"
+        content {
+            includeGroup("com.simibubi.create")
+            includeGroup("com.jozufozu.flywheel")
+            includeGroup("com.tterrag.registrate")
+        }
+    }
+    maven {
+        name = "Valkyrien Skies Internal"
+        url = "https://maven.valkyrienskies.org"
+        content {
+            excludeGroup("org.spongepowered")
+        }
+    }
+    maven {
+        url = "https://maven.theillusivec4.top/"
+    }
+
+    maven {
+        name = "Jared's maven"
+        url = "https://maven.blamejared.com/"
+    }
+
+    maven {
+        name = "Squiddev maven cct"
+        url = "https://maven.squiddev.cc/"
+        content {
+            includeGroup("cc.tweaked")
+            includeModule("org.squiddev", "Cobalt")
+        }
+    }
+
+    //Mixin^2
+    maven { url = "https://maven.bawnorton.com/releases" }
+    maven { url = "https://maven.enjarai.dev/mirrors" }
+    maven { url = "https://maven.neoforged.net/releases/" }
+}
+
+dependencies {
+    implementation fg.deobf("com.tterrag.registrate:Registrate:MC1.20-1.3.3")
+    //Create
+    implementation fg.deobf("com.simibubi.create:create-${minecraft_version}:${create_version}:slim") { transitive = false }
+    implementation fg.deobf("net.createmod.ponder:Ponder-Forge-${minecraft_version}:${ponder_version}")
+    implementation fg.deobf("curse.maven:vanillin-965702:6446560")
+    compileOnly fg.deobf("dev.engine-room.flywheel:flywheel-forge-api-${minecraft_version}:${flywheel_version}")
+    implementation fg.deobf("dev.engine-room.flywheel:flywheel-forge-${minecraft_version}:${flywheel_version}")
+    //CDG
+    implementation fg.deobf("curse.maven:createdieselgenerators-869316:6920093")
+    //TFMG
+    implementation fg.deobf("curse.maven:createindustry-693815:7236535")
+    //CC
+    implementation fg.deobf("cc.tweaked:cc-tweaked-${minecraft_version}-forge:${cc_version}")
+    //JEI
+    implementation fg.deobf("mezz.jei:jei-1.20.1-forge:15.19.0.85")
+    //KFF
+    implementation 'thedarkcolour:kotlinforforge:4.11.0'
+    //VS2
+    implementation("org.valkyrienskies.core:api:${vs_core_version}")
+    implementation("org.valkyrienskies.core:impl:${vs_core_version}")
+    implementation("org.valkyrienskies.core:internal:${vs_core_version}")
+    implementation("org.valkyrienskies.core:util:${vs_core_version}")
+    implementation(fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:${vs2_version}")) {
+        transitive = false
+    }
+
+    //Mixin^2
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+    /*
+    compileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.2-beta.4"))
+    implementation(jarJar("com.github.bawnorton.mixinsquared:mixinsquared-forge:0.3.2-beta.4")) {
+        jarJar.ranged(it, "[0.3.2-beta.4,)")
+    }*/
+    //Mixin Extras
+    compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.4.1"))
+    //implementation("io.github.llamalad7:mixinextras-forge:0.4.1")
+    implementation(jarJar("io.github.llamalad7:mixinextras-forge:0.4.1")) {
+        jarJar.ranged(it, "[0.4.1,)")
+    }
+    //Forge
+    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    var replaceProperties = [
+            minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
+            forge_version: forge_version, forge_version_range: forge_version_range,
+            loader_version_range: loader_version_range,
+            mod_id: mod_id, mod_name: mod_name, mod_license: mod_license, mod_version: mod_version,
+            mod_authors: mod_authors, mod_description: mod_description,
+    ]
+    inputs.properties replaceProperties
+
+    filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
+        expand replaceProperties + [project: project]
+    }
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            artifact jar
+        }
+    }
+    repositories {
+        maven {
+            url "file://${project.projectDir}/mcmodsrepo"
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('jarJar', Jar).configure {
+    archiveClassifier.set('')
+    manifest {
+        attributes([
+                'Specification-Title'     : mod_id,
+                'Specification-Vendor'    : mod_authors,
+                'Specification-Version'   : '1',
+                'Implementation-Title'    : project.name,
+                'Implementation-Version'  : project.jar.archiveVersion,
+                'Implementation-Vendor'   : mod_authors,
+                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+        ])
+    }
+    finalizedBy 'reobfJar'
+}
+
+tasks.named('jar') {
+    enabled = false
+}
