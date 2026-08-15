@@ -1,0 +1,46 @@
+package com.deltasf.createpropulsion;
+
+import com.deltasf.createpropulsion.registries.*;
+
+import com.deltasf.createpropulsion.compat.computercraft.CCProxy;
+import com.deltasf.createpropulsion.network.PropulsionPackets;
+import com.deltasf.createpropulsion.particles.ParticleTypes;
+import com.simibubi.create.compat.Mods;
+import com.simibubi.create.foundation.data.CreateRegistrate;
+
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+
+@Mod(CreatePropulsion.ID)
+public class CreatePropulsion {
+    public static final String ID = "createpropulsion";
+    public static final CreateRegistrate REGISTRATE = CreateRegistrate.create(ID);
+    public static CreateRegistrate registrate() { return REGISTRATE; }
+
+    public CreatePropulsion() {
+        IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
+        //Content
+        ParticleTypes.register(modBus);
+        PropulsionBlocks.register();
+        PropulsionBlockEntities.register();
+        PropulsionItems.register();
+        PropulsionFluids.register();
+        PropulsionPartialModels.register();
+        PropulsionCreativeTab.register(modBus);
+        PropulsionPackets.register();
+        PropulsionDisplaySources.register();
+        PropulsionValkyrien.init();
+
+        //Compat
+        Mods.COMPUTERCRAFT.executeIfInstalled(() -> CCProxy::register);
+
+        //Config
+        net.minecraftforge.fml.ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, PropulsionConfig.SERVER_SPEC, ID + "-server.toml");
+        net.minecraftforge.fml.ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, PropulsionConfig.CLIENT_SPEC, ID + "-client.toml");
+        PropulsionDefaultStress.init(PropulsionConfig.SERVER_SPEC);
+        
+        REGISTRATE.registerEventListeners(modBus);
+    }
+}

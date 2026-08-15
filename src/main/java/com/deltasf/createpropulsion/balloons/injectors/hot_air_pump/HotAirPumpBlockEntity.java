@@ -1,0 +1,327 @@
+package com.deltasf.createpropulsion.balloons.injectors.hot_air_pump;
+
+import java.util.List;
+import java.util.UUID;
+
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.valkyrienskies.core.api.ships.Ship;
+import org.valkyrienskies.mod.common.VSGameUtilsKt;
+
+import com.deltasf.createpropulsion.PropulsionConfig;
+import com.deltasf.createpropulsion.atmosphere.DimensionAtmosphereManager;
+import com.deltasf.createpropulsion.balloons.Balloon;
+import com.deltasf.createpropulsion.balloons.injectors.AirInjectorObstructionBehaviour;
+import com.deltasf.createpropulsion.balloons.injectors.BalloonInfoBehaviour;
+import com.deltasf.createpropulsion.balloons.injectors.HotAirInjectorBehaviour;
+import com.deltasf.createpropulsion.balloons.injectors.IHotAirInjector;
+import com.deltasf.createpropulsion.balloons.registries.BalloonShipRegistry;
+import com.deltasf.createpropulsion.compat.PropulsionCompatibility;
+import com.deltasf.createpropulsion.compat.computercraft.ComputerBehaviour;
+import com.deltasf.createpropulsion.heat.IHeatConsumer;
+import com.deltasf.createpropulsion.registries.PropulsionCapabilities;
+import com.deltasf.createpropulsion.utility.math.MathUtility;
+import com.simibubi.create.compat.computercraft.AbstractComputerBehaviour;
+import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
+import com.simibubi.create.foundation.utility.CreateLang;
+
+import net.createmod.catnip.lang.LangBuilder;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntityType;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraftforge.common.capabilities.Capability;
+import net.minecraftforge.common.util.LazyOptional;
+
+public class HotAirPumpBlockEntity extends KineticBlockEntity implements IHotAirInjector, IHeatConsumer {
+    public static final float MAX_RPM = 256.0f;
+    public static final float MAX_HEAT_CONSUMPTION = 2.0f;
+
+    public static final float OPERATING_THRESHOLD = 0.3f;
+    public static final float MIN_VISUAL_INJECTION = 0.75f;
+
+    //Behaviours
+    private HotAirInjectorBehaviour injectorBehaviour;
+    private AirInjectorObstructionBehaviour obstructionBehaviour;
+    private BalloonInfoBehaviour balloonInfoBehaviour;
+    public AbstractComputerBehaviour computerBehaviour;
+
+    private final LazyOptional<IHeatConsumer> heatConsumerCap;
+
+    //State
+    private float heatConsumedThisTick = 0;
+    private float lastHeatConsumed = 0;
+    private boolean isAboveHeatThreshold = false;
+    private int scanTally = 0;
+
+    //Visuals
+    public float fanAngle = 0;
+    public float membraneTime = (float) (Math.PI / 2.0); //Full extent after placment
+    public float membraneSpeed = 0;
+    public float lastRenderTime = -1;
+    public float clientParticleBuffer = 0;
+    public float clientLastVisualT = 0;
+    private float lastSyncedHeat = -1;
+
+    public HotAirPumpBlockEntity(BlockEntityType<?> typeIn, BlockPos pos, BlockState state) {
+        super(typeIn, pos, state);
+        this.heatConsumerCap = LazyOptional.of(() -> this);
+    }
+
+    @Override
+    public void addBehaviours(List<BlockEntityBehaviour> behaviours) {
+        super.addBehaviours(behaviours);
+
+        injectorBehaviour = new HotAirInjectorBehaviour(this);
+        behaviours.add(injectorBehaviour);
+
+        obstructionBehaviour = new AirInjectorObstructionBehaviour(this);
+        behaviours.add(obstructionBehaviour);
+
+        balloonInfoBehaviour = new BalloonInfoBehaviour(this, this::getId);
+        behaviours.add(balloonInfoBehaviour);
+
+        if (PropulsionCompatibility.CC_ACTIVE) {
+            behaviours.add(computerBehaviour = new ComputerBehaviour(this));
+        }
+    }
+
+    @Override
+    public void onSpeedChanged(float previousSpeed) {
+        super.onSpeedChanged(previousSpeed);
+        if (Math.abs(previousSpeed - getSpeed()) > MathUtility.epsilon) {
+            attemptScan();
+        }
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        Level level = getLevel();
+        if (level == null || level.isClientSide()) return;
+        
+        if (scanTally > 0) {
+            scanTally--;
+        }
+
+        lastHeatConsumed = heatConsumedThisTick;
+        heatConsumedThisTick = 0;
+
+        boolean currentlyHot = lastHeatConsumed > 0;
+        boolean syncNeeded = false;
+
+        if (currentlyHot != isAboveHeatThreshold) {
+            isAboveHeatThreshold = currentlyHot;
+            attemptScan();
+
+            syncNeeded = true;
+        }
+
+        if (Math.abs(lastHeatConsumed - lastSyncedHeat) > MathUtility.epsilon) {
+            syncNeeded = true;
+        }
+
+        if (syncNeeded) {
+            lastSyncedHeat = lastHeatConsumed;
+            notifyUpdate();
+        }
+    }
+
+    //Hot air injector impl
+
+    @Override
+    public UUID getId() {
+        return injectorBehaviour.getId();
+    }
+
+    @Override
+    public void attemptScan() {
+        Level level = getLevel();
+        if (level == null || level.isClientSide() || scanTally > 0) return;
+        scanTally = 5;
+        //Ship check
+        Ship ship = VSGameUtilsKt.getShipManagingPos(level, worldPosition);
+        if (ship == null) return;
+        
+        //Balloon check
+        Balloon balloon = BalloonShipRegistry.forShip(ship.getId(), level).getBalloonOf(getId());
+        if (balloon != null) return;
+        
+        //Perform scan via behaviour
+        injectorBehaviour.performScan();
+        notifyUpdate();
+    }
+
+    @Override
+    public double getInjectionAmount() {
+        float rpmPercentage = Math.abs(getSpeed()) / MAX_RPM;
+        double effectiveHeat = lastHeatConsumed;
+        //Fallback, so first tick of injection uses heat from this tick, not previous
+        if (effectiveHeat <= MathUtility.epsilon && heatConsumedThisTick > MathUtility.epsilon) {
+            effectiveHeat = heatConsumedThisTick;
+        }
+        double baseInjection = PropulsionConfig.HOT_AIR_PUMP_BASE_INJECTION_AMOUNT.get();
+        double injection = baseInjection * rpmPercentage * effectiveHeat;
+        double efficiency = obstructionBehaviour.getEfficiency();
+        return injection * efficiency;
+    }
+
+    @Override
+    public float getVisualInjectionIntencity() { 
+        double baseInjection = PropulsionConfig.HOT_AIR_PUMP_BASE_INJECTION_AMOUNT.get();
+        float ratio = (float) (getInjectionAmount() / baseInjection);
+        if (ratio <= MathUtility.epsilon) return 0;
+        return Math.max(ratio, MIN_VISUAL_INJECTION); 
+    }
+
+    @Override
+    public void onBalloonLoaded() { balloonInfoBehaviour.performUpdate(); }
+
+    //IHeatConsumer impl
+
+    public float getLastHeatConsumed() {
+        return lastHeatConsumed;
+    }
+
+    @Override
+    public boolean isActive() {
+        return Math.abs(getSpeed()) > 0; //Not rotating -> Do not waste fuel
+    }
+
+    @Override
+    public float getOperatingThreshold() { return OPERATING_THRESHOLD; }
+
+    @Override
+    public float consumeHeat(float maxAvailable, float expectedHeatOutput, boolean simulate) {
+        if (!isActive()) return 0;
+
+        float limit = Math.min(MAX_HEAT_CONSUMPTION, expectedHeatOutput);
+        float toConsume = Math.min(limit, maxAvailable);
+
+        //We are in a simulation?!
+        if (!simulate) {
+            heatConsumedThisTick += toConsume;
+        }
+        return toConsume;
+    }
+
+    //Goggles
+
+    @Override
+    public boolean addToGoggleTooltip(List<Component> tooltip, boolean isPlayerSneaking) {
+        boolean isAirless = level != null && DimensionAtmosphereManager.getData(level).isAirless();
+        boolean isBalloonPresent = balloonInfoBehaviour.isBalloonPresent();
+        boolean hasRPM = Math.abs(getSpeed()) > 0;
+        boolean hasHeat = lastHeatConsumed >= OPERATING_THRESHOLD;
+        boolean isOnShip = VSGameUtilsKt.isBlockInShipyard(getLevel(), getBlockPos());
+
+        //Status
+        String key = "";
+        ChatFormatting color = null;
+
+        if (isAirless) {
+            key = "createpropulsion.gui.goggles.hot_air_pump.status.airless"; 
+            color = ChatFormatting.RED;
+        } else if (!isOnShip) {
+            key = "createpropulsion.gui.goggles.hot_air_burner.status.not_shipified";
+            color = ChatFormatting.RED;
+        } else if (!isBalloonPresent) {
+            //No RPM -> No Heat -> No Balloon
+            if (!hasRPM) {
+                key = "createpropulsion.gui.goggles.hot_air_pump.status.no_rpm";
+                color = ChatFormatting.GRAY;
+            } else if (!hasHeat) {
+                key = "createpropulsion.gui.goggles.hot_air_pump.status.no_heat";
+                color = ChatFormatting.GOLD;
+            } else {
+                key = "createpropulsion.gui.goggles.hot_air_burner.status.no_balloon";
+                color = ChatFormatting.DARK_GRAY;
+            }
+        } else {
+            //Balloon is present
+            if (hasRPM && hasHeat) {
+                key = "createpropulsion.gui.goggles.hot_air_burner.status.on";
+                color = ChatFormatting.GREEN;
+            } else if (!hasRPM) {
+                key = "createpropulsion.gui.goggles.hot_air_pump.status.no_rpm";
+                color = ChatFormatting.GRAY;
+            } else {
+                key = "createpropulsion.gui.goggles.hot_air_pump.status.no_heat";
+                color = ChatFormatting.GOLD;
+            }
+        }
+
+        CreateLang.builder()
+            .add(Component.translatable("createpropulsion.gui.goggles.hot_air_pump.status"))
+            .text(": ")
+            .add(CreateLang.builder().add(Component.translatable(key)).style(color))
+            .forGoggles(tooltip);
+
+        //Injection
+        if (!isAirless && isOnShip && isBalloonPresent) {
+            double currentInjection = getInjectionAmount();
+            double baseInjection = PropulsionConfig.HOT_AIR_PUMP_BASE_INJECTION_AMOUNT.get();
+            int percentage = (int) ((currentInjection / baseInjection) * 100);
+
+            LangBuilder injectionBuilder = CreateLang.builder()
+                .add(Component.translatable("createpropulsion.gui.goggles.hot_air_pump.injection"))
+                .text(": ")
+                .add(CreateLang.text(percentage + "%").style(ChatFormatting.AQUA));
+
+            if (isPlayerSneaking) {
+                injectionBuilder.add(CreateLang.text(String.format(" (%.2f)", currentInjection)).style(ChatFormatting.AQUA));
+            }
+            
+            injectionBuilder.forGoggles(tooltip);
+        }
+
+        //Balloon
+        if (!isAirless && isBalloonPresent) {
+            CreateLang.text("").forGoggles(tooltip);
+            balloonInfoBehaviour.addBalloonTooltip(tooltip, isPlayerSneaking);
+        }
+
+        obstructionBehaviour.displayObstructionOutline("HotAirPumpObstruction");
+        return true;
+    }
+
+    //Caps
+
+    @Override
+    public <T> @NotNull LazyOptional<T> getCapability(@NotNull Capability<T> cap, @Nullable Direction side) {
+        if (cap == PropulsionCapabilities.HEAT_CONSUMER && side == Direction.DOWN) {
+            return heatConsumerCap.cast();
+        }
+        if (PropulsionCompatibility.CC_ACTIVE && computerBehaviour != null && computerBehaviour.isPeripheralCap(cap)) {
+            return computerBehaviour.getPeripheralCapability();
+        }
+        return super.getCapability(cap, side);
+    }
+
+    @Override
+    public void invalidateCaps() {
+        super.invalidateCaps();
+        heatConsumerCap.invalidate();
+    }
+
+    //Nbt (took some mental effort to not call this section "NBT slop")
+
+    @Override
+    protected void write(CompoundTag compound, boolean clientPacket) {
+        super.write(compound, clientPacket);
+        compound.putFloat("LastHeatConsumed", lastHeatConsumed);
+        compound.putBoolean("IsAboveThreshold", isAboveHeatThreshold);
+    }
+
+    @Override
+    protected void read(CompoundTag compound, boolean clientPacket) {
+        super.read(compound, clientPacket);
+        lastHeatConsumed = compound.getFloat("LastHeatConsumed");
+        isAboveHeatThreshold = compound.getBoolean("IsAboveThreshold");
+    }
+}

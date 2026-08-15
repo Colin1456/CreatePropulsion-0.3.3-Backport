@@ -1,0 +1,214 @@
+package com.deltasf.createpropulsion.balloons.injectors.hot_air_pump;
+
+import org.valkyrienskies.core.api.ships.Ship;
+import org.valkyrienskies.mod.common.VSGameUtilsKt;
+
+import com.deltasf.createpropulsion.PropulsionConfig;
+import com.deltasf.createpropulsion.balloons.particles.BalloonParticleSystem;
+import com.deltasf.createpropulsion.balloons.particles.ShipParticleHandler;
+import com.deltasf.createpropulsion.balloons.registries.ClientBalloonRegistry;
+import com.deltasf.createpropulsion.registries.PropulsionPartialModels;
+import com.deltasf.createpropulsion.registries.PropulsionSpriteShifts;
+import com.deltasf.createpropulsion.utility.math.MathUtility;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.simibubi.create.content.kinetics.base.KineticBlockEntityRenderer;
+
+import net.createmod.catnip.animation.AnimationTickHolder;
+import net.createmod.catnip.render.CachedBuffers;
+import net.createmod.catnip.render.SpriteShiftEntry;
+import net.createmod.catnip.render.SuperByteBuffer;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.core.Direction;
+import net.minecraft.core.Direction.Axis;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
+
+public class HotAirPumpRenderer extends KineticBlockEntityRenderer<HotAirPumpBlockEntity>  {
+    private static final float TEXTURE_SIZE = 64.0f;
+    private static final float V_PIXEL_TOP = 8.75f;
+    private static final float V_PIXEL_BOTTOM = 11.00f; 
+    private static final float PIXELS_PER_Y = (V_PIXEL_BOTTOM - V_PIXEL_TOP) / (22.0f - 13.0f);
+
+    private static final float MIN_INTERPOLATION_VALUE = 0.53f;
+    private static final float MAX_INTERPOLATION_VALUE = 1f;
+
+    private static final float MAX_VISUAL_SPEED = 0.75f; 
+    private static final float MAX_RPM = 256.0f;
+    private static final float FAN_SPEED_MULTIPLIER = 0.5f;
+    private static final float MIN_VISUAL_SPEED = 0.075f;
+
+    private static final float MEMBRANE_DECAY = 0.2f;
+
+    public HotAirPumpRenderer(BlockEntityRendererProvider.Context context) {
+        super(context);
+    }
+
+    @Override
+    protected void renderSafe(HotAirPumpBlockEntity blockEntity, float partialTicks, PoseStack ms, MultiBufferSource buffer, int light, int overlay) {
+        Level level = blockEntity.getLevel();
+        if (level == null) return;
+        
+        BlockState state = blockEntity.getBlockState();
+
+        SuperByteBuffer cogModel = CachedBuffers.partialFacing(PropulsionPartialModels.HOT_AIR_PUMP_COG, state, Direction.NORTH);
+        SuperByteBuffer fanModel = CachedBuffers.partialFacing(PropulsionPartialModels.LIQUID_BURNER_FAN, state, Direction.NORTH);
+        SuperByteBuffer membraneModel = CachedBuffers.partialFacing(PropulsionPartialModels.HOT_AIR_PUMP_MEMBRANE, state, Direction.NORTH);
+        SuperByteBuffer meshModel = CachedBuffers.partialFacing(PropulsionPartialModels.HOT_AIR_PUMP_MESH, state, Direction.NORTH);
+
+        VertexConsumer vertexBuffer = buffer.getBuffer(RenderType.cutout()); 
+        
+        //Time
+        float time = AnimationTickHolder.getRenderTime(level);
+        if (blockEntity.lastRenderTime == -1) blockEntity.lastRenderTime = time;
+        float dt = time - blockEntity.lastRenderTime;
+        blockEntity.lastRenderTime = time;
+
+        //Fan
+        float heat = blockEntity.getLastHeatConsumed();
+        if (heat > 0) {
+            blockEntity.fanAngle += (heat * FAN_SPEED_MULTIPLIER) * dt;
+            blockEntity.fanAngle %= (float) (Math.PI * 2);
+        }
+
+        //Membrane
+        float currentRpm = Math.abs(blockEntity.getSpeed());
+        float targetMembraneSpeed;
+
+        if (currentRpm <= 0) {
+            targetMembraneSpeed = 0;
+        } else {
+            float tRpm = Math.min(currentRpm / MAX_RPM, 1.0f);
+            float speedCurve = tRpm * tRpm * tRpm * (tRpm * (tRpm * 6 - 15) + 10); //Smoothstep
+            targetMembraneSpeed = MIN_VISUAL_SPEED + (MAX_VISUAL_SPEED - MIN_VISUAL_SPEED) * speedCurve;
+        }
+
+        blockEntity.membraneSpeed = MathUtility.expDecay(blockEntity.membraneSpeed, targetMembraneSpeed, MEMBRANE_DECAY, dt);
+        blockEntity.membraneTime += blockEntity.membraneSpeed * dt;
+
+        float t = MathUtility.sineInRange(blockEntity.membraneTime, MIN_INTERPOLATION_VALUE, MAX_INTERPOLATION_VALUE);
+        float tRaw = MathUtility.sineInRange(blockEntity.membraneTime, 0, MAX_INTERPOLATION_VALUE);
+
+        float scaleY = 0.5f + (0.5f * t);
+        float translateY = (2.0f / 16.0f) * (1.0f - t);
+        float meshTranslateY = -(9.0f / 16.0f) * (1.0f - tRaw);
+
+        SpriteShiftEntry worldSpaceShift = new SpriteShiftEntry() {
+            @Override
+            public float getTargetU(float globalU) { return PropulsionSpriteShifts.HOT_AIR_PUMP.getTargetU(globalU); }
+
+            @Override
+            public float getTargetV(float globalV) {
+                TextureAtlasSprite sprite = PropulsionSpriteShifts.HOT_AIR_PUMP.getOriginal();
+                float v0 = sprite.getV0();
+                float vRange = sprite.getV1() - v0;
+                float localVPixel = ((globalV - v0) / vRange) * TEXTURE_SIZE;
+                float originalY = 22.0f - (localVPixel - V_PIXEL_TOP) / PIXELS_PER_Y;
+                float newY = (originalY * scaleY) + (translateY * 16.0f);
+                float targetVPixel = V_PIXEL_TOP + (22.0f - newY) * PIXELS_PER_Y;
+                return v0 + (targetVPixel / TEXTURE_SIZE) * vRange;
+            }
+        };
+
+        //Membrane
+        ms.pushPose();
+        membraneModel
+            .translate(0, translateY, 0)
+            .scale(1, scaleY, 1)
+            .shiftUV(worldSpaceShift)
+            .light(light).renderInto(ms, vertexBuffer);
+        ms.popPose();
+
+        //Mesh
+        ms.pushPose();
+        meshModel
+            .translate(0, meshTranslateY - 0.02f, 0)
+            .light(light)
+            .renderInto(ms, vertexBuffer);
+        ms.popPose();
+
+        VertexConsumer solidBuffer = buffer.getBuffer(RenderType.solid());
+
+        //Cog
+        standardKineticRotationTransform(cogModel, blockEntity, light).renderInto(ms, solidBuffer);
+
+        //Fan
+        ms.pushPose();
+        fanModel
+            .translate(2/16.0f,12/16.0f,0)
+            .rotate(Axis.Z, -(float)Math.PI / 2.0f)
+            .translate(0.5f,6/16.0f,0.5f)
+            .rotate(Axis.X, blockEntity.fanAngle)
+            .translate(-0.5f,-6/16.0f,-0.5f)
+            .light(light)
+            .overlay(overlay)
+            .renderInto(ms, solidBuffer);
+        ms.popPose();
+
+        //Particles
+        if (BalloonParticleSystem.isBlockInSpawnRange(level, blockEntity.getBlockPos())) {
+            float deltaT = t - blockEntity.clientLastVisualT;
+            blockEntity.clientLastVisualT = t;
+            
+            if (deltaT < 0) {
+                //Inhale
+                double amount = blockEntity.getInjectionAmount();
+                if (amount > 0) {
+                    float multiplier = PropulsionConfig.HOT_AIR_PUMP_PARTICLE_SPAWN_MULTIPLIER.get().floatValue();
+                    blockEntity.clientParticleBuffer += amount * multiplier * dt;
+                }
+            } else {
+                //Exhale
+                if (t > 0.95f && blockEntity.clientParticleBuffer >= 1.0f) {
+                    int count = (int) blockEntity.clientParticleBuffer;
+                    if (count > 0) {
+                        blockEntity.clientParticleBuffer -= count;
+                        spawnPumpParticles(blockEntity, count, level, meshTranslateY);
+                    }
+                }
+            }
+        }
+    }
+
+    private void spawnPumpParticles(HotAirPumpBlockEntity be, int count, Level level, float meshTranslateY) {
+        int targetBalloonId = ClientBalloonRegistry.getBalloonIdForHai(be.getId());
+        if (targetBalloonId == -1) return;
+
+        Ship ship = VSGameUtilsKt.getShipManagingPos(level, be.getBlockPos());
+        if (ship == null) return;
+
+        ShipParticleHandler handler = BalloonParticleSystem.getHandler(ship.getId());
+        if (handler == null) return;
+
+        final float Y_MAX = 0.8f + meshTranslateY;
+        final float Y_MIN = Y_MAX - 0.1f;
+        final float RADIUS = 5.0f / 16.0f;
+
+        double centerX = be.getBlockPos().getX() + 0.5;
+        double centerY = be.getBlockPos().getY();
+        double centerZ = be.getBlockPos().getZ() + 0.5;
+
+        float speed = Math.min(be.membraneSpeed * 2.666f, 1.5f);
+        float life = Math.min(0.8f / speed, 1);
+
+        for (int i = 0; i < count; i++) {
+            double localY = Y_MIN + level.random.nextFloat() * (Y_MAX - Y_MIN);
+            double offsetX = (level.random.nextFloat() * 2 * RADIUS) - RADIUS;
+            double offsetZ = (level.random.nextFloat() * 2 * RADIUS) - RADIUS;
+
+            handler.spawnStream(
+                centerX + offsetX, 
+                centerY + localY, 
+                centerZ + offsetZ, 
+                speed,
+                0.3f,
+                life,
+                0.2f,
+                targetBalloonId
+            );
+        }
+    }
+}
