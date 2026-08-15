@@ -1,0 +1,88 @@
+package com.deltasf.createpropulsion.thruster.creative_thruster;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
+import com.deltasf.createpropulsion.registries.PropulsionBlockEntities;
+import com.deltasf.createpropulsion.registries.PropulsionShapes;
+import com.deltasf.createpropulsion.thruster.AbstractThrusterBlock;
+
+import com.simibubi.create.foundation.blockEntity.SmartBlockEntityTicker;
+import com.simibubi.create.content.equipment.wrench.IWrenchable;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.world.level.block.entity.BlockEntity;
+
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.entity.BlockEntityType;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.level.block.state.properties.DirectionProperty;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
+
+public class CreativeThrusterBlock extends AbstractThrusterBlock implements IWrenchable {
+    public static final DirectionProperty PLACEMENT_FACING = DirectionProperty.create("placement_facing", Direction.values());
+
+    public CreativeThrusterBlock(Properties properties) {
+        super(properties);
+        this.registerDefaultState(this.defaultBlockState().setValue(PLACEMENT_FACING, Direction.DOWN));
+    }
+
+    @Override
+    protected void createBlockStateDefinition(@Nonnull StateDefinition.Builder<Block, BlockState> builder) {
+        super.createBlockStateDefinition(builder);
+        builder.add(PLACEMENT_FACING);
+    }
+
+    @Override
+    public BlockEntity newBlockEntity(@Nonnull BlockPos pos, @Nonnull BlockState state) {
+        return new CreativeThrusterBlockEntity(PropulsionBlockEntities.CREATIVE_THRUSTER_BLOCK_ENTITY.get(), pos, state);
+    }
+
+    @Override
+    public BlockState getStateForPlacement(@Nonnull BlockPlaceContext context) {
+        BlockState state = super.getStateForPlacement(context);
+        if (state == null) return null;
+
+        Direction placedAgainst = context.getClickedFace().getOpposite();
+        return state.setValue(PLACEMENT_FACING, placedAgainst);
+    }
+
+    @Override
+    public VoxelShape getShape(@Nullable BlockState pState, @Nullable BlockGetter pLevel, @Nullable BlockPos pPos, @Nullable CollisionContext pContext) {
+        if (pState == null) {
+            return PropulsionShapes.CREATIVE_THRUSTER.get(Direction.NORTH);
+        }
+        Direction direction = pState.getValue(FACING);
+        if (direction == Direction.UP || direction == Direction.DOWN) direction = direction.getOpposite();
+        return PropulsionShapes.CREATIVE_THRUSTER.get(direction);
+    }
+
+    @Override
+    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
+        if (!context.getLevel().isClientSide) {
+            BlockEntity be = context.getLevel().getBlockEntity(context.getClickedPos());
+            if (be instanceof CreativeThrusterBlockEntity creativeBe) {
+                creativeBe.cyclePlumeType();
+                IWrenchable.playRotateSound(context.getLevel(), context.getClickedPos());
+            }
+        }
+        return InteractionResult.SUCCESS;
+    }
+
+    @Nullable
+    @Override
+    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(@Nonnull Level level, @Nonnull BlockState state, @Nonnull BlockEntityType<T> type) {
+        if (type == PropulsionBlockEntities.CREATIVE_THRUSTER_BLOCK_ENTITY.get()) {
+            return new SmartBlockEntityTicker<>();
+        }
+        return null;
+    }
+}
