@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "D": {
+      "item": "minecraft:magenta_dye"
+    },
+    "E": {
+      "item": "createpropulsion:envelope"
+    }
+  },
+  "pattern": [
+    "EEE",
+    "EDE",
+    "EEE"
+  ],
+  "result": {
+    "count": 8,
+    "item": "createpropulsion:envelope_magenta"
+  },
+  "show_notification": true
+}
