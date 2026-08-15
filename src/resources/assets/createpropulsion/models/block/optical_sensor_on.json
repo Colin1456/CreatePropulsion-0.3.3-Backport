@@ -1,6 +1,0 @@
-{
-    "parent": "createpropulsion:block/optical_sensor_base",
-    "textures": {
-      "0": "createpropulsion:block/optical_sensor_powered"
-    }
-}
