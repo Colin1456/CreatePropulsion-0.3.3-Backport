@@ -1,0 +1,26 @@
+{
+    "required": true,
+    "minVersion": "0.8.5",
+    "package": "com.deltasf.createpropulsion.mixin",
+    "compatibilityLevel": "JAVA_17",
+    "refmap": "createpropulsion.refmap.json",
+    "plugin": "com.deltasf.createpropulsion.mixin.plugin.PropulsionMixinPlugin",
+    "mixins": [
+      "feature.compass.CompassItemMixin",
+      "feature.envelopes.BlockMixin",
+      "feature.tilt_adapter.MechanicalBearingMixin",
+      "feature.tilt_adapter.SequenceContextMixin"
+    ],
+    "client": [
+      "feature.compass.CompassItemPropertyFunctionMixin",
+      "rendering.LevelRendererMixin",
+      "rendering.EngineImplMixin",
+      "rendering.DrawManagerAccessor",
+      "rendering.InstancedDrawManagerMixin",
+      "rendering.InstancedInstancerMixin"
+    ],
+    "server": [],
+    "injectors": {
+      "defaultRequire": 1
+    }
+  }
