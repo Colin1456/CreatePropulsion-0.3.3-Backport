@@ -8,5 +8,5 @@
 
 # FAQ:
 ### Why did you backport this mod?
-- Because Minecraft Chinese Edtion's Forge verson is too low(47.3.0),The lastest verson of this mod can't run in this verson.
+- Because Minecraft China Edtion's Forge verson is too low(47.3.0),The lastest verson of this mod can't run in this verson.
 
